@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.sqlite
+
+Show (Project)_ Week 4 - AI201 _ Applications of AI Engineering _ CodePath Courses.pdf
