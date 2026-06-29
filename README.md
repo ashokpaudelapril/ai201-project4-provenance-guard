@@ -100,16 +100,16 @@ The upper threshold is **0.72** (not 0.5 or 0.65) because a false positive — l
 ### Example submissions with noticeably different confidence scores
 
 **High-confidence AI example:**
-> *"Artificial intelligence represents a transformative paradigm shift in modern society. It is important to note that while the benefits of AI are numerous, it is equally essential to consider the ethical implications. Furthermore, stakeholders across various sectors must collaborate to ensure responsible deployment."*
+> *"Artificial intelligence represents a transformative paradigm shift in modern society. It is important to note that while the benefits of AI are numerous, it is equally essential to consider the ethical implications. Furthermore, stakeholders across various sectors must collaborate to ensure responsible deployment. The intersection of machine learning and data analytics provides unprecedented opportunities for innovation across multiple domains."*
 
-Result: `llm_score: 0.95`, `stylo_score: 0.81`, `confidence: 0.895`, `attribution: likely_ai`
+Result: `llm_score: 0.8`, `stylo_score: 0.6681`, `confidence: 0.7472`, `attribution: likely_ai`
 
-**Lower-confidence (uncertain) example:**
-> *"The relationship between monetary policy and asset price inflation has been extensively studied in the literature. Central banks face a fundamental tension between their mandate for price stability and the unintended consequences of prolonged low interest rates on equity and real estate valuations."*
+**Clearly human example:**
+> *"ok so i finally tried that new ramen place downtown and honestly? underwhelming. the broth was fine but they put WAY too much sodium in it and i was thirsty for like three hours after. my friend got the spicy version and said it was better. probably wont go back"*
 
-Result: `llm_score: 0.68`, `stylo_score: 0.72`, `confidence: 0.696`, `attribution: uncertain`
+Result: `llm_score: 0.2`, `stylo_score: 0.3046`, `confidence: 0.2418`, `attribution: likely_human`
 
-*(These scores reflect real outputs from the detection pipeline on these inputs.)*
+*(These are real outputs from the detection pipeline on these exact inputs.)*
 
 ---
 
@@ -221,7 +221,7 @@ These numbers are designed to be defensible, not arbitrary: they reflect realist
 To verify rate limiting is active, run 12 rapid requests while the server is running:
 ```bash
 for i in $(seq 1 12); do
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5000/submit \
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5001/submit \
     -H "Content-Type: application/json" \
     -d '{"text": "test", "creator_id": "test-user"}'
 done
@@ -232,66 +232,64 @@ You should see `200` for the first 10 and `429` for the last 2.
 
 ## Audit Log Sample
 
-The `/log` endpoint returns structured JSON entries. Here are 3 representative entries covering a submission, a borderline case, and an appeal:
+The `/log` endpoint returns structured JSON entries. Real output from `GET /log` covering all three attribution outcomes (including one appeal):
 
 ```json
 {
   "entries": [
     {
-      "content_id": "a1b2c3d4-0001-...",
-      "creator_id": "user-42",
-      "timestamp": "2026-06-28T22:10:01.123456+00:00",
-      "text_preview": "Artificial intelligence represents a transformative paradigm shift...",
+      "content_id": "2ad4ddd1-20fb-4043-b0c5-72131c36b18d",
+      "creator_id": "test-user-3",
+      "timestamp": "2026-06-29T00:50:00.854206+00:00",
+      "text_preview": "Artificial intelligence represents a transformative paradigm shift in modern society...",
       "attribution": "likely_ai",
-      "confidence": 0.895,
-      "llm_score": 0.95,
-      "stylo_score": 0.81,
-      "sentence_variance_score": 0.78,
-      "ttr_score": 0.82,
-      "punctuation_diversity_score": 0.83,
-      "label": "AI-Assisted Content — Our system detected strong indicators...",
+      "confidence": 0.7472,
+      "llm_score": 0.8,
+      "stylo_score": 0.6681,
+      "sentence_variance_score": 0.9244,
+      "ttr_score": 0.08,
+      "punctuation_diversity_score": 1.0,
+      "label": "AI-Assisted Content — Our system detected strong indicators of AI-generated text (confidence: 0.75). This content may have been created with AI tools. The author can contest this classification via an appeal.",
       "status": "classified",
       "appeal_reasoning": null,
       "appeal_timestamp": null
     },
     {
-      "content_id": "a1b2c3d4-0002-...",
-      "creator_id": "user-77",
-      "timestamp": "2026-06-28T22:12:44.654321+00:00",
-      "text_preview": "The relationship between monetary policy and asset price inflation...",
-      "attribution": "uncertain",
-      "confidence": 0.696,
-      "llm_score": 0.68,
-      "stylo_score": 0.72,
-      "sentence_variance_score": 0.65,
-      "ttr_score": 0.74,
-      "punctuation_diversity_score": 0.77,
-      "label": "Attribution Uncertain — Our system could not determine...",
-      "status": "under_review",
-      "appeal_reasoning": "I wrote this for my economics dissertation. The formal tone is intentional.",
-      "appeal_timestamp": "2026-06-28T22:15:00.000000+00:00"
-    },
-    {
-      "content_id": "a1b2c3d4-0003-...",
-      "creator_id": "user-5",
-      "timestamp": "2026-06-28T22:18:30.111111+00:00",
-      "text_preview": "ok so i finally tried that new ramen place downtown and honestly?...",
+      "content_id": "be427f6e-e4f2-46ae-b004-476629985ad4",
+      "creator_id": "test-user-2",
+      "timestamp": "2026-06-29T00:46:57.611584+00:00",
+      "text_preview": "ok so i finally tried that new ramen place downtown and honestly? underwhelming...",
       "attribution": "likely_human",
-      "confidence": 0.21,
-      "llm_score": 0.12,
-      "stylo_score": 0.35,
-      "sentence_variance_score": 0.15,
-      "ttr_score": 0.28,
-      "punctuation_diversity_score": 0.12,
-      "label": "Human-Written Content — Our system detected strong indicators...",
+      "confidence": 0.2418,
+      "llm_score": 0.2,
+      "stylo_score": 0.3046,
+      "sentence_variance_score": 0.8337,
+      "ttr_score": 0.08,
+      "punctuation_diversity_score": 0.0,
+      "label": "Human-Written Content — Our system detected strong indicators of human authorship (confidence: 0.24). This content appears to have been written by a person.",
       "status": "classified",
       "appeal_reasoning": null,
       "appeal_timestamp": null
+    },
+    {
+      "content_id": "56c84b60-035d-4646-bcce-bb2a6a43aca7",
+      "creator_id": "test-user-1",
+      "timestamp": "2026-06-29T00:45:55.290236+00:00",
+      "text_preview": "Artificial intelligence is transforming every industry today.",
+      "attribution": "uncertain",
+      "confidence": 0.68,
+      "llm_score": 0.8,
+      "stylo_score": 0.5,
+      "sentence_variance_score": 0.5,
+      "ttr_score": 0.0,
+      "punctuation_diversity_score": 1.0,
+      "label": "Attribution Uncertain — Our system could not determine with confidence whether this content is human- or AI-written (confidence: 0.68). Signals were inconclusive. The author may contest this classification via an appeal.",
+      "status": "under_review",
+      "appeal_reasoning": "I wrote this myself for my AI ethics class.",
+      "appeal_timestamp": "2026-06-29T00:46:31.844846+00:00"
     }
   ]
 }
-```
-
 ---
 
 ## Known Limitations
