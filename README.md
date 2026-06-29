@@ -1,5 +1,7 @@
 # Provenance Guard
 
+**Walkthrough video:** https://www.loom.com/share/ff49bd9a493843c3bf7a0bd3585e75b0
+
 A backend API for classifying whether submitted creative text is human-written or AI-generated. Built for content platforms that need attribution transparency — not to police creativity, but to give audiences the context they need.
 
 ## Setup
