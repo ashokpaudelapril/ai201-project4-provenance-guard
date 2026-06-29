@@ -63,6 +63,21 @@ The two signals are run on every submission. Their outputs are combined into a s
 
 **What it misses:** Very short texts (<50 words) give the model too little signal. Heavily human-edited AI output can fool it. Formal human writing (academic papers, legal text) may score higher than expected because it deliberately mimics some LLM-like patterns of precision and completeness.
 
+### Signal 3: Lexical sophistication (pure Python) — *Stretch: Ensemble Detection*
+
+**File:** [`signals/lexical_signal.py`](signals/lexical_signal.py)
+
+**What it measures:** Vocabulary complexity — whether the text skews toward formal, polished language (AI-like) or casual, everyday vocabulary (human-like). Two sub-scores:
+
+| Sub-score | What it measures | Why it works |
+|-----------|-----------------|--------------|
+| Average word length | Mean character length of all words | AI favors longer, more formal words ("utilize" vs "use") |
+| Long-word ratio | Fraction of words with 9+ characters | AI deploys more polysyllabic vocabulary than casual human writing |
+
+**Output format:** Float 0–1 (1 = AI-like, 0 = human-like), average of two normalized sub-scores.
+
+**What it misses:** Academic and legal human writing uses sophisticated vocabulary by necessity and will score AI-like. Intentionally casual AI output (prompted to "write informally") may score human-like. This signal is strongest for discriminating casual human text from default AI output.
+
 ### Signal 2: Stylometric heuristics (pure Python)
 
 **File:** [`signals/stylometric.py`](signals/stylometric.py)
@@ -83,9 +98,15 @@ Combined as: `stylo_score = (variance_score + ttr_score + punct_score) / 3`
 
 ## Confidence Scoring
 
-**Formula:** `confidence = 0.6 × llm_score + 0.4 × stylo_score`
+**Formula (Ensemble — Stretch Feature):** `confidence = 0.50 × llm_score + 0.30 × stylo_score + 0.20 × lexical_score`
 
-The LLM signal carries 60% weight because it captures semantic patterns holistically; stylometrics (40%) captures surface structure and is more easily fooled by writing style alone.
+| Signal | Weight | Rationale |
+|--------|--------|-----------|
+| LLM (Groq) | 50% | Captures semantic/holistic patterns — most reliable signal |
+| Stylometric heuristics | 30% | Structural surface properties (sentence variance, TTR, punctuation) |
+| Lexical sophistication | 20% | Vocabulary complexity (avg word length, long-word ratio) |
+
+The LLM signal carries the most weight because it assesses meaning and context; the two surface signals capture orthogonal structural dimensions and together compensate for LLM blind spots on very short or heavily edited text.
 
 **Thresholds:**
 
@@ -176,6 +197,30 @@ Contest a classification. Use the `content_id` from your `/submit` response.
   "message": "Appeal received. Your submission has been flagged for human review.",
   "content_id": "3f7a2b1e-...",
   "status": "under_review"
+}
+```
+
+### `GET /analytics` *(Stretch: Analytics Dashboard)*
+
+Returns detection patterns, appeal rate, and average signal scores across all submissions.
+
+**Response (200):**
+```json
+{
+  "total_submissions": 3,
+  "attribution_counts": {
+    "likely_ai": 1,
+    "likely_human": 1,
+    "uncertain": 1
+  },
+  "appeal_rate": 0.3333,
+  "total_appeals": 1,
+  "average_scores": {
+    "confidence": 0.5563,
+    "llm_score": 0.6,
+    "stylo_score": 0.4909,
+    "lexical_score": 0.512
+  }
 }
 ```
 

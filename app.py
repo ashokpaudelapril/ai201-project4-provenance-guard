@@ -1,9 +1,10 @@
 """
 Provenance Guard — Flask API
 Endpoints:
-  POST /submit  — classify text content
-  POST /appeal  — contest a classification
-  GET  /log     — view recent audit log entries
+  POST /submit    — classify text content
+  POST /appeal    — contest a classification
+  GET  /log       — view recent audit log entries
+  GET  /analytics — detection patterns and appeal statistics (stretch)
 """
 
 import uuid
@@ -14,7 +15,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import audit
-from signals import llm_signal, stylometric
+from signals import lexical_signal, llm_signal, stylometric
 
 load_dotenv()
 
@@ -34,23 +35,35 @@ limiter = Limiter(
 )
 
 # ---------------------------------------------------------------------------
-# Confidence scoring thresholds
-# Upper threshold is 0.72 (not 0.65) because false positives — labeling a
-# human creator's work as AI — are more damaging than false negatives on a
-# creative platform. We require stronger evidence to flag AI.
+# Ensemble confidence scoring — three signals, documented weights:
+#
+#   LLM signal (Groq):            50% — semantic/holistic, most reliable
+#   Stylometric heuristics:       30% — structural surface properties
+#   Lexical sophistication:       20% — vocabulary complexity patterns
+#
+# LLM carries the most weight because it captures meaning and context;
+# stylometrics and lexical signals capture complementary surface properties.
+#
+# Thresholds (asymmetric to reduce false positives on human writers):
+#   ≥ 0.72  → likely_ai       (high confidence AI)
+#   ≤ 0.35  → likely_human    (high confidence human)
+#   middle  → uncertain
 # ---------------------------------------------------------------------------
-THRESHOLD_AI = 0.72
+LLM_WEIGHT    = 0.50
+STYLO_WEIGHT  = 0.30
+LEXICAL_WEIGHT = 0.20
+
+THRESHOLD_AI    = 0.72
 THRESHOLD_HUMAN = 0.35
 
-# Weights for combining signals.
-# LLM signal carries more weight (0.6) because it captures semantic patterns
-# holistically; stylometrics (0.4) captures surface structure.
-LLM_WEIGHT = 0.6
-STYLO_WEIGHT = 0.4
 
-
-def compute_confidence(llm_score: float, stylo_score: float) -> float:
-    return round(LLM_WEIGHT * llm_score + STYLO_WEIGHT * stylo_score, 4)
+def compute_confidence(llm_score: float, stylo_score: float, lexical_score: float) -> float:
+    return round(
+        LLM_WEIGHT * llm_score
+        + STYLO_WEIGHT * stylo_score
+        + LEXICAL_WEIGHT * lexical_score,
+        4,
+    )
 
 
 def get_attribution(confidence: float) -> str:
@@ -102,14 +115,17 @@ def submit():
 
     content_id = str(uuid.uuid4())
 
-    # Run both signals
-    llm_score = llm_signal.score(text)
-    stylo_breakdown = stylometric.score_with_breakdown(text)
-    stylo_score = stylo_breakdown["stylo_score"]
+    # Run all three signals
+    llm_score        = llm_signal.score(text)
+    stylo_breakdown  = stylometric.score_with_breakdown(text)
+    lexical_breakdown = lexical_signal.score_with_breakdown(text)
 
-    confidence = compute_confidence(llm_score, stylo_score)
+    stylo_score   = stylo_breakdown["stylo_score"]
+    lexical_score = lexical_breakdown["lexical_score"]
+
+    confidence  = compute_confidence(llm_score, stylo_score, lexical_score)
     attribution = get_attribution(confidence)
-    label = get_label(attribution, confidence)
+    label       = get_label(attribution, confidence)
 
     audit.log_submission(
         content_id=content_id,
@@ -119,6 +135,7 @@ def submit():
         confidence=confidence,
         llm_score=llm_score,
         stylo_breakdown=stylo_breakdown,
+        lexical_breakdown=lexical_breakdown,
         label=label,
     )
 
@@ -130,6 +147,7 @@ def submit():
             "label": label,
             "llm_score": round(llm_score, 4),
             "stylo_score": stylo_score,
+            "lexical_score": lexical_score,
         }
     ), 200
 
@@ -138,7 +156,7 @@ def submit():
 def appeal():
     data = request.get_json(silent=True) or {}
     content_id = (data.get("content_id") or "").strip()
-    reasoning = (data.get("creator_reasoning") or "").strip()
+    reasoning  = (data.get("creator_reasoning") or "").strip()
 
     if not content_id:
         return jsonify({"error": "content_id is required"}), 400
@@ -163,6 +181,11 @@ def log():
     limit = min(int(request.args.get("limit", 20)), 100)
     entries = audit.get_recent_entries(limit=limit)
     return jsonify({"entries": entries}), 200
+
+
+@app.route("/analytics", methods=["GET"])
+def analytics():
+    return jsonify(audit.get_analytics()), 200
 
 
 # ---------------------------------------------------------------------------

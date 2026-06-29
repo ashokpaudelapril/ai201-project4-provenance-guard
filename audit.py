@@ -1,7 +1,7 @@
 """
 Structured audit log backed by SQLite.
 
-Every attribution decision — including both signal scores, the combined
+Every attribution decision — including all signal scores, the combined
 confidence, the label, and any appeal — is stored here. The GET /log
 endpoint surfaces recent entries.
 """
@@ -37,9 +37,12 @@ def init_db() -> None:
             confidence                  REAL    NOT NULL,
             llm_score                   REAL    NOT NULL,
             stylo_score                 REAL    NOT NULL,
+            lexical_score               REAL,
             sentence_variance_score     REAL,
             ttr_score                   REAL,
             punctuation_diversity_score REAL,
+            avg_word_length_score       REAL,
+            long_word_ratio_score       REAL,
             label                       TEXT    NOT NULL,
             status                      TEXT    NOT NULL DEFAULT 'classified',
             appeal_reasoning            TEXT,
@@ -47,6 +50,15 @@ def init_db() -> None:
         )
         """
     )
+    # Migrate existing DB if lexical_score column is missing
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(audit_log)")}
+    for col, definition in [
+        ("lexical_score", "REAL"),
+        ("avg_word_length_score", "REAL"),
+        ("long_word_ratio_score", "REAL"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE audit_log ADD COLUMN {col} {definition}")
     conn.commit()
 
 
@@ -58,6 +70,7 @@ def log_submission(
     confidence: float,
     llm_score: float,
     stylo_breakdown: dict,
+    lexical_breakdown: dict,
     label: str,
 ) -> None:
     conn = _get_conn()
@@ -65,10 +78,11 @@ def log_submission(
         """
         INSERT INTO audit_log (
             content_id, creator_id, timestamp, text_preview,
-            attribution, confidence, llm_score, stylo_score,
-            sentence_variance_score, ttr_score, punctuation_diversity_score,
+            attribution, confidence, llm_score,
+            stylo_score, sentence_variance_score, ttr_score, punctuation_diversity_score,
+            lexical_score, avg_word_length_score, long_word_ratio_score,
             label, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classified')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classified')
         """,
         (
             content_id,
@@ -82,6 +96,9 @@ def log_submission(
             stylo_breakdown.get("sentence_variance_score"),
             stylo_breakdown.get("ttr_score"),
             stylo_breakdown.get("punctuation_diversity_score"),
+            round(lexical_breakdown["lexical_score"], 4),
+            lexical_breakdown.get("avg_word_length_score"),
+            lexical_breakdown.get("long_word_ratio_score"),
             label,
         ),
     )
@@ -113,8 +130,9 @@ def get_recent_entries(limit: int = 20) -> list[dict]:
     rows = conn.execute(
         """
         SELECT content_id, creator_id, timestamp, text_preview,
-               attribution, confidence, llm_score, stylo_score,
+               attribution, confidence, llm_score, stylo_score, lexical_score,
                sentence_variance_score, ttr_score, punctuation_diversity_score,
+               avg_word_length_score, long_word_ratio_score,
                label, status, appeal_reasoning, appeal_timestamp
         FROM audit_log
         ORDER BY id DESC
@@ -123,6 +141,46 @@ def get_recent_entries(limit: int = 20) -> list[dict]:
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_analytics() -> dict:
+    conn = _get_conn()
+
+    totals = conn.execute(
+        """
+        SELECT
+            COUNT(*)                                            AS total,
+            SUM(CASE WHEN attribution='likely_ai'    THEN 1 ELSE 0 END) AS likely_ai,
+            SUM(CASE WHEN attribution='likely_human' THEN 1 ELSE 0 END) AS likely_human,
+            SUM(CASE WHEN attribution='uncertain'    THEN 1 ELSE 0 END) AS uncertain,
+            SUM(CASE WHEN status='under_review'      THEN 1 ELSE 0 END) AS appeals,
+            AVG(confidence)                                     AS avg_confidence,
+            AVG(llm_score)                                      AS avg_llm_score,
+            AVG(stylo_score)                                    AS avg_stylo_score,
+            AVG(lexical_score)                                  AS avg_lexical_score
+        FROM audit_log
+        """
+    ).fetchone()
+
+    total = totals["total"] or 0
+    appeals = totals["appeals"] or 0
+
+    return {
+        "total_submissions": total,
+        "attribution_counts": {
+            "likely_ai": totals["likely_ai"] or 0,
+            "likely_human": totals["likely_human"] or 0,
+            "uncertain": totals["uncertain"] or 0,
+        },
+        "appeal_rate": round(appeals / total, 4) if total > 0 else 0.0,
+        "total_appeals": appeals,
+        "average_scores": {
+            "confidence": round(totals["avg_confidence"] or 0, 4),
+            "llm_score": round(totals["avg_llm_score"] or 0, 4),
+            "stylo_score": round(totals["avg_stylo_score"] or 0, 4),
+            "lexical_score": round(totals["avg_lexical_score"] or 0, 4),
+        },
+    }
 
 
 def get_entry(content_id: str) -> dict | None:

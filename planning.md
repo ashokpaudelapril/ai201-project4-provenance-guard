@@ -84,6 +84,22 @@ GET /log
 
 ---
 
+## Ensemble Detection (Stretch)
+
+Three signals are combined using a weighted average:
+
+| Signal | Weight | Rationale |
+|--------|--------|-----------|
+| LLM (Groq) | 50% | Captures semantic/holistic patterns — most reliable |
+| Stylometric heuristics | 30% | Structural surface properties — complements LLM |
+| Lexical sophistication | 20% | Vocabulary complexity — orthogonal to the above two |
+
+**Formula:** `confidence = 0.50 × llm + 0.30 × stylo + 0.20 × lexical`
+
+The LLM weight is highest because it assesses meaning and context, not just surface statistics. Stylometric and lexical signals each capture a different surface dimension (sentence structure vs. word choice) and together compensate for the LLM's blind spots on very short texts or heavily edited AI output.
+
+---
+
 ## Detection Signals
 
 ### Signal 1: LLM-based classification (Groq)
@@ -144,6 +160,14 @@ Three variants with exact display text:
   4. Returns a confirmation with the updated status.
 - **What a human reviewer sees:** The `GET /log` endpoint exposes `appeal_reasoning` and `appeal_timestamp` alongside the original classification data — giving a reviewer full context to make a manual decision.
 - Automated re-classification is **not** implemented.
+
+---
+
+### Signal 3: Lexical sophistication (pure Python)
+- **What it measures:** Vocabulary complexity — specifically whether the text skews formal/polished (AI-like) or casual/everyday (human-like). Two sub-scores: average word length and ratio of long words (9+ characters).
+- **Why it differs:** AI writing tends to use slightly longer, more formal vocabulary ("utilize" vs "use", "endeavor" vs "try"). Casual human writing draws from a more colloquial vocabulary pool.
+- **Output:** Float 0–1 (1 = AI-like, 0 = human-like), average of two normalized sub-scores.
+- **Blind spot:** Formal human writing (academic papers, legal text) uses sophisticated vocabulary by necessity and will score AI-like on this signal. Intentionally casual AI output ("write this in a casual, friendly tone") may score human-like.
 
 ---
 
